@@ -239,7 +239,9 @@ class SearchApp(QMainWindow):
                 content = result.stdout
             except:
                 content = ""
+        tab.text_edit.blockSignals(True)
         tab.text_edit.setPlainText(content)
+        tab.text_edit.blockSignals(False)
         tab._original_text = content
 
     def update_tab_visuals(self, tab, is_modified):
