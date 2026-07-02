@@ -2,13 +2,101 @@ import sys
 import os
 import subprocess
 import glob
+import secrets
+import pickle
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLineEdit, QPushButton, QPlainTextEdit, QMessageBox, QTabWidget,
-    QInputDialog
+    QInputDialog, QDialog, QLabel
 )
 from PyQt6.QtGui import QTextCharFormat, QColor, QTextCursor, QShortcut, QKeySequence, QFont, QIcon
 from PyQt6.QtCore import Qt
+
+class LoginDialog(QDialog):
+    def __init__(self, vault_path, parent=None):
+        super().__init__(parent)
+        self.vault_path = vault_path
+        self.master_password = None
+        self.vault_data = None
+        self.setWindowTitle("Login - pwd")
+        self.setFixedSize(300, 150)
+        self.setWindowIcon(QIcon.fromTheme("system-lock-screen", QIcon.fromTheme("lock")))
+        
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Digite a Senha Mestre:"))
+        
+        self.password_input = QLineEdit()
+        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        layout.addWidget(self.password_input)
+        
+        self.btn_login = QPushButton("Desbloquear")
+        self.btn_login.clicked.connect(self.attempt_login)
+        layout.addWidget(self.btn_login)
+        
+        self.password_input.returnPressed.connect(self.attempt_login)
+
+    def attempt_login(self):
+        password = self.password_input.text()
+        if not password:
+            return
+            
+        try:
+            cmd = ["gpg", "--batch", "--yes", "--passphrase", password, "-d", self.vault_path]
+            result = subprocess.run(cmd, capture_output=True, check=True)
+            self.vault_data = pickle.loads(result.stdout)
+            self.master_password = password
+            self.accept()
+        except Exception:
+            QMessageBox.critical(self, "Erro", "Senha incorreta ou erro ao ler o cofre.")
+            self.password_input.clear()
+
+class InitialSetupDialog(QDialog):
+    def __init__(self, vault_path, parent=None):
+        super().__init__(parent)
+        self.vault_path = vault_path
+        self.master_password = None
+        self.setWindowTitle("Configuração Inicial - pwd")
+        self.setFixedSize(350, 200)
+        self.setWindowIcon(QIcon.fromTheme("system-lock-screen", QIcon.fromTheme("lock")))
+        
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Defina sua Senha Mestre:"))
+        
+        self.pass1 = QLineEdit()
+        self.pass1.setEchoMode(QLineEdit.EchoMode.Password)
+        self.pass1.setPlaceholderText("Nova Senha")
+        layout.addWidget(self.pass1)
+        
+        layout.addWidget(QLabel("Confirme a Senha:"))
+        self.pass2 = QLineEdit()
+        self.pass2.setEchoMode(QLineEdit.EchoMode.Password)
+        self.pass2.setPlaceholderText("Confirmar Senha")
+        layout.addWidget(self.pass2)
+        
+        self.btn_create = QPushButton("Criar Cofre")
+        self.btn_create.clicked.connect(self.create_vault)
+        layout.addWidget(self.btn_create)
+
+    def create_vault(self):
+        p1 = self.pass1.text()
+        p2 = self.pass2.text()
+        
+        if not p1:
+            QMessageBox.warning(self, "Aviso", "A senha não pode ser vazia.")
+            return
+        if p1 != p2:
+            QMessageBox.warning(self, "Aviso", "As senhas não coincidem.")
+            return
+            
+        try:
+            empty_vault = {}
+            data = pickle.dumps(empty_vault)
+            cmd = ["gpg", "--batch", "--yes", "--passphrase", p1, "-c", "-o", self.vault_path]
+            subprocess.run(cmd, input=data, check=True)
+            self.master_password = p1
+            self.accept()
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Erro ao criar cofre: {e}")
 
 class CustomPlainTextEdit(QPlainTextEdit):
     def focusNextPrevChild(self, next):
@@ -65,11 +153,11 @@ class CustomPlainTextEdit(QPlainTextEdit):
         cursor.endEditBlock()
 
 class TabContent(QWidget):
-    def __init__(self, file_name, app_font, parent_app):
+    def __init__(self, file_name, passphrase, app_font, parent_app):
         super().__init__()
         self.parent_app = parent_app
         self.file_name = file_name
-        self.passphrase = "root"
+        self.passphrase = passphrase
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
         self.file_path = os.path.join(self.base_dir, "arquivos", f"{file_name}.gpg")
         self._original_text = ""
@@ -93,8 +181,10 @@ class TabContent(QWidget):
         return self.text_edit.toPlainText() != self._original_text
 
 class SearchApp(QMainWindow):
-    def __init__(self):
+    def __init__(self, master_password, vault_data):
         super().__init__()
+        self.master_password = master_password
+        self.vault_data = vault_data
         self.setWindowTitle("pwd")
         self.resize(1000, 800)
         self.setWindowIcon(QIcon.fromTheme("system-lock-screen", QIcon.fromTheme("lock")))
@@ -105,10 +195,19 @@ class SearchApp(QMainWindow):
 
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
         self.data_dir = os.path.join(self.base_dir, "arquivos")
+        self.vault_path = os.path.join(self.data_dir, ".vault.gpg")
         
         self.init_ui()
         self.scan_and_load_tabs()
         self.setup_shortcuts()
+
+    def save_vault(self):
+        try:
+            data = pickle.dumps(self.vault_data)
+            cmd = ["gpg", "--batch", "--yes", "--passphrase", self.master_password, "-c", "-o", self.vault_path]
+            subprocess.run(cmd, input=data, check=True)
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Erro ao atualizar o cofre: {e}")
 
     def init_ui(self):
         central_widget = QWidget()
@@ -175,6 +274,38 @@ class SearchApp(QMainWindow):
         self.shortcut_prev_tab = QShortcut(QKeySequence("Ctrl+PgUp"), self)
         self.shortcut_prev_tab.activated.connect(self.prev_tab)
 
+    def closeEvent(self, event):
+        modified_tabs = []
+        for i in range(self.tab_widget.count()):
+            tab = self.tab_widget.widget(i)
+            if tab.is_modified():
+                modified_tabs.append(tab.file_name)
+        
+        if modified_tabs:
+            msg = "As seguintes abas possuem alterações não salvas:\n\n"
+            msg += "\n".join(f"- {name}" for name in modified_tabs)
+            msg += "\n\nDeseja salvar tudo antes de sair?"
+            
+            res = QMessageBox.question(
+                self, "Alterações não Salvas", msg,
+                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel
+            )
+            
+            if res == QMessageBox.StandardButton.Save:
+                for i in range(self.tab_widget.count()):
+                    tab = self.tab_widget.widget(i)
+                    if tab.is_modified():
+                        # Seleciona a aba para que o método save_current_tab funcione corretamente ou chamamos uma lógica direta
+                        self.tab_widget.setCurrentWidget(tab)
+                        self.save_current_tab()
+                event.accept()
+            elif res == QMessageBox.StandardButton.Discard:
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            event.accept()
+
     def next_tab(self):
         current = self.tab_widget.currentIndex()
         count = self.tab_widget.count()
@@ -190,6 +321,10 @@ class SearchApp(QMainWindow):
     def scan_and_load_tabs(self):
         os.makedirs(self.data_dir, exist_ok=True)
         gpg_files = glob.glob(os.path.join(self.data_dir, "*.gpg"))
+        
+        # Filtra para ignorar arquivos ocultos como o .vault.gpg
+        gpg_files = [f for f in gpg_files if not os.path.basename(f).startswith(".")]
+        
         if not gpg_files:
             self.add_tab("Principal")
         else:
@@ -202,7 +337,14 @@ class SearchApp(QMainWindow):
         for i in range(self.tab_widget.count()):
             if self.tab_widget.tabText(i).replace(" *", "") == name:
                 return
-        tab = TabContent(name, self.app_font, self)
+        
+        # Busca a senha no cofre ou gera uma nova se não existir
+        if name not in self.vault_data:
+            self.vault_data[name] = secrets.token_urlsafe(32)
+            self.save_vault()
+            
+        passphrase = self.vault_data[name]
+        tab = TabContent(name, passphrase, self.app_font, self)
         self.tab_widget.addTab(tab, name)
         self.load_tab_data(tab)
 
@@ -225,6 +367,12 @@ class SearchApp(QMainWindow):
                 except Exception as e:
                     QMessageBox.critical(self, "Erro", f"Não foi possível deletar o arquivo: {e}")
                     return
+            
+            # Remove do cofre
+            if tab.file_name in self.vault_data:
+                del self.vault_data[tab.file_name]
+                self.save_vault()
+                
             self.tab_widget.removeTab(idx)
             if self.tab_widget.count() == 0:
                 self.add_tab("Principal")
@@ -329,6 +477,30 @@ class SearchApp(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = SearchApp()
+    
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    data_dir = os.path.join(base_dir, "arquivos")
+    os.makedirs(data_dir, exist_ok=True)
+    vault_path = os.path.join(data_dir, ".vault.gpg")
+    
+    master_password = None
+    vault_data = {}
+    
+    if not os.path.exists(vault_path):
+        setup = InitialSetupDialog(vault_path)
+        if setup.exec() == QDialog.DialogCode.Accepted:
+            master_password = setup.master_password
+            vault_data = {}
+        else:
+            sys.exit()
+    else:
+        login = LoginDialog(vault_path)
+        if login.exec() == QDialog.DialogCode.Accepted:
+            master_password = login.master_password
+            vault_data = login.vault_data
+        else:
+            sys.exit()
+            
+    window = SearchApp(master_password, vault_data)
     window.show()
     sys.exit(app.exec())
