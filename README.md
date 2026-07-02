@@ -59,3 +59,20 @@ Para encerrar a aplicação:
 - `arquivos/`: Diretório onde os arquivos `.gpg` são armazenados.
 - `scripts/`: Scripts auxiliares de execução e manutenção.
 - `assets/`: Recursos visuais, como o screenshot da aplicação.
+
+## Exemplos GPG (Referência)
+
+```bash
+# Criptografar um arquivo
+gpg -c segredo.txt
+gpg --batch --yes --passphrase "minhasenha123" -c segredo.txt
+
+# Descriptografar um arquivo
+gpg -d segredo.txt.gpg
+gpg --batch --yes --passphrase "minhasenha123" -d segredo.txt.gpg
+
+# Arquivos compactados (ex: 7z)
+gpg --batch --yes --passphrase "minhasenha123" -c gpg.7z
+gpg --batch --yes --passphrase "minhasenha123" -d gpg.7z.gpg > gpg_2.7z
+```
+

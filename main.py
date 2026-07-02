@@ -234,7 +234,7 @@ class SearchApp(QMainWindow):
         search_layout.addWidget(self.btn_down)
         main_layout.addLayout(search_layout)
 
-        # Tabs Control Bar (+ / -)
+        # Tabs Control Bar (+ / - / R)
         tabs_control_layout = QHBoxLayout()
         self.btn_add_tab = QPushButton("+")
         self.btn_add_tab.setFixedWidth(40)
@@ -243,15 +243,23 @@ class SearchApp(QMainWindow):
         self.btn_remove_tab = QPushButton("-")
         self.btn_remove_tab.setFixedWidth(40)
         self.btn_remove_tab.clicked.connect(self.remove_current_tab)
+
+        self.btn_rename_tab = QPushButton("R")
+        self.btn_rename_tab.setFixedWidth(40)
+        self.btn_rename_tab.setToolTip("Renomear Aba Atual")
+        self.btn_rename_tab.clicked.connect(self.rename_current_tab)
         
         tabs_control_layout.addWidget(self.btn_add_tab)
         tabs_control_layout.addWidget(self.btn_remove_tab)
+        tabs_control_layout.addWidget(self.btn_rename_tab)
         tabs_control_layout.addStretch()
         main_layout.addLayout(tabs_control_layout)
 
         # Tab Widget
         self.tab_widget = QTabWidget()
         self.tab_widget.setFont(self.app_font)
+        self.tab_widget.setMovable(True)
+        self.tab_widget.tabBar().tabMoved.connect(self.on_tabs_reordered)
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
         main_layout.addWidget(self.tab_widget)
 
@@ -325,13 +333,36 @@ class SearchApp(QMainWindow):
         # Filtra para ignorar arquivos ocultos como o .vault.gpg
         gpg_files = [f for f in gpg_files if not os.path.basename(f).startswith(".")]
         
-        if not gpg_files:
+        existing_names = [os.path.splitext(os.path.basename(f))[0] for f in gpg_files]
+        
+        # Ordem salva no cofre
+        saved_order = self.vault_data.get("__order__", [])
+        
+        # 1. Carrega as abas que estão na ordem salva e ainda existem no disco
+        loaded_names = []
+        for name in saved_order:
+            if name in existing_names:
+                self.add_tab(name)
+                loaded_names.append(name)
+        
+        # 2. Carrega qualquer arquivo novo que não estava na ordem salva
+        for name in sorted(existing_names):
+            if name not in loaded_names:
+                self.add_tab(name)
+
+        if not gpg_files and self.tab_widget.count() == 0:
             self.add_tab("Principal")
-        else:
-            gpg_files.sort()
-            for file_path in gpg_files:
-                tab_name = os.path.splitext(os.path.basename(file_path))[0]
-                self.add_tab(tab_name)
+
+    def on_tabs_reordered(self, from_idx, to_idx):
+        # Gera a lista da nova ordem
+        new_order = []
+        for i in range(self.tab_widget.count()):
+            name = self.tab_widget.tabText(i).replace(" *", "")
+            new_order.append(name)
+        
+        # Salva no vault
+        self.vault_data["__order__"] = new_order
+        self.save_vault()
 
     def add_tab(self, name):
         for i in range(self.tab_widget.count()):
@@ -341,6 +372,8 @@ class SearchApp(QMainWindow):
         # Busca a senha no cofre ou gera uma nova se não existir
         if name not in self.vault_data:
             self.vault_data[name] = secrets.token_urlsafe(32)
+            # A nova aba será a última, então atualizamos a ordem
+            self.update_order_in_vault()
             self.save_vault()
             
         passphrase = self.vault_data[name]
@@ -348,11 +381,63 @@ class SearchApp(QMainWindow):
         self.tab_widget.addTab(tab, name)
         self.load_tab_data(tab)
 
+    def update_order_in_vault(self):
+        new_order = []
+        for i in range(self.tab_widget.count()):
+            name = self.tab_widget.tabText(i).replace(" *", "")
+            new_order.append(name)
+        self.vault_data["__order__"] = new_order
+
     def add_new_tab_dialog(self):
         name, ok = QInputDialog.getText(self, "Nova Aba", "Nome da aba:")
         if ok and name:
             self.add_tab(name)
             self.tab_widget.setCurrentIndex(self.tab_widget.count() - 1)
+            # Garante que a ordem seja salva após adicionar
+            self.update_order_in_vault()
+            self.save_vault()
+
+    def rename_current_tab(self):
+        idx = self.tab_widget.currentIndex()
+        if idx == -1: return
+        tab = self.tab_widget.widget(idx)
+        old_name = tab.file_name
+        
+        new_name, ok = QInputDialog.getText(self, "Renomear Aba", "Novo nome da aba:", text=old_name)
+        if not ok or not new_name or new_name == old_name:
+            return
+
+        # Verifica se já existe outra aba com o novo nome
+        for i in range(self.tab_widget.count()):
+            if self.tab_widget.tabText(i).replace(" *", "") == new_name:
+                QMessageBox.warning(self, "Aviso", "Já existe uma aba com este nome.")
+                return
+
+        new_file_path = os.path.join(self.data_dir, f"{new_name}.gpg")
+        
+        # 1. Renomeia o arquivo no disco se ele existir
+        if os.path.exists(tab.file_path):
+            try:
+                os.rename(tab.file_path, new_file_path)
+            except Exception as e:
+                QMessageBox.critical(self, "Erro", f"Erro ao renomear arquivo: {e}")
+                return
+        
+        # 2. Atualiza o cofre
+        if old_name in self.vault_data:
+            self.vault_data[new_name] = self.vault_data.pop(old_name)
+            # Atualiza também a lista de ordem
+            if "__order__" in self.vault_data:
+                self.vault_data["__order__"] = [new_name if n == old_name else n for n in self.vault_data["__order__"]]
+            self.save_vault()
+
+        # 3. Atualiza o objeto TabContent
+        tab.file_name = new_name
+        tab.file_path = new_file_path
+        
+        # 4. Atualiza a interface (visual da aba)
+        is_modified = tab.is_modified()
+        self.update_tab_visuals(tab, is_modified)
 
     def remove_current_tab(self):
         idx = self.tab_widget.currentIndex()
@@ -371,9 +456,13 @@ class SearchApp(QMainWindow):
             # Remove do cofre
             if tab.file_name in self.vault_data:
                 del self.vault_data[tab.file_name]
-                self.save_vault()
                 
             self.tab_widget.removeTab(idx)
+            
+            # Atualiza a ordem e salva o vault
+            self.update_order_in_vault()
+            self.save_vault()
+            
             if self.tab_widget.count() == 0:
                 self.add_tab("Principal")
 
