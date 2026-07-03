@@ -18,7 +18,7 @@ class LoginDialog(QDialog):
         self.vault_path = vault_path
         self.master_password = None
         self.vault_data = None
-        self.setWindowTitle("Login - pwd")
+        self.setWindowTitle("Login - Password")
         self.setFixedSize(300, 150)
         self.setWindowIcon(QIcon.fromTheme("system-lock-screen", QIcon.fromTheme("lock")))
         
@@ -55,7 +55,7 @@ class InitialSetupDialog(QDialog):
         super().__init__(parent)
         self.vault_path = vault_path
         self.master_password = None
-        self.setWindowTitle("Configuração Inicial - pwd")
+        self.setWindowTitle("Configuração Inicial - password")
         self.setFixedSize(350, 200)
         self.setWindowIcon(QIcon.fromTheme("system-lock-screen", QIcon.fromTheme("lock")))
         
@@ -185,7 +185,7 @@ class SearchApp(QMainWindow):
         super().__init__()
         self.master_password = master_password
         self.vault_data = vault_data
-        self.setWindowTitle("pwd")
+        self.setWindowTitle("password")
         self.resize(1000, 800)
         self.setWindowIcon(QIcon.fromTheme("system-lock-screen", QIcon.fromTheme("lock")))
 

@@ -1,8 +1,10 @@
-# PWD Manager (PyQt6)
+# Password Manager (PyQt6)
 
 Uma aplicação simples e eficiente para gerenciar notas e senhas criptografadas usando GPG, desenvolvida em Python com PyQt6.
 
-![Screenshot](assets/pwd.png)
+![Screenshot](assets/login.png)
+
+![Screenshot](assets/password.png)
 
 ## Funcionalidades
 
@@ -12,29 +14,42 @@ Uma aplicação simples e eficiente para gerenciar notas e senhas criptografadas
 - **Busca Rápida:** Encontre informações facilmente dentro dos seus arquivos.
 - **Automação via Scripts:** Scripts prontos para iniciar e encerrar a aplicação.
 
+## Atalhos de Teclado
+
+| Atalho | Função |
+| :--- | :--- |
+| `F3` | Buscar próxima ocorrência do termo pesquisado |
+| `Ctrl + S` | Salvar alterações na aba atual |
+| `Ctrl + N` | Abrir diálogo para criar nova aba |
+| `Ctrl + PgDown` | Mudar para a próxima aba |
+| `Ctrl + PgUp` | Mudar para a aba anterior |
+| `Tab` | Indentar linha ou seleção (4 espaços) |
+| `Shift + Tab` | Remover indentação da linha ou seleção |
+| `Enter` | Confirmar ação (Login / Criação de Cofre) |
+
 ## Pré-requisitos
 
-- Python 3.10+
-- GPG instalado no sistema
-- PyQt6
+- **Python 3.10+** (Geralmente pré-instalado no Linux)
+  ```bash
+  sudo apt install python3 python3-venv
+  ```
+- **GPG (GNU Privacy Guard)**
+  ```bash
+  sudo apt install gnupg
+  ```
+- **PyQt6** (Instalado via pip no ambiente virtual, veja abaixo)
 
 ## Instalação
 
 1. Clone o repositório:
    ```bash
-   git clone <url-do-repositorio>
+   git clone git@github.com:surfx/passwords_gtk.git
    cd passwords_gtk
    ```
 
-2. Crie e ative um ambiente virtual:
+2. Configure o ambiente automaticamente (cria venv e instala dependências):
    ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
-
-3. Instale as dependências:
-   ```bash
-   pip install PyQt6
+   ./scripts/build.sh
    ```
 
 ## Uso
@@ -76,3 +91,6 @@ gpg --batch --yes --passphrase "minhasenha123" -c gpg.7z
 gpg --batch --yes --passphrase "minhasenha123" -d gpg.7z.gpg > gpg_2.7z
 ```
 
+# Urls
+
+- [passwords_gtk](https://github.com/surfx/passwords_gtk)

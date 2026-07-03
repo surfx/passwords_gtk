@@ -9,7 +9,7 @@ if [ ! -f "$VAULT_PATH" ]; then
     exit 1
 fi
 
-echo "--- Analisador de Cofre (PWD Manager) ---"
+echo "--- Analisador de Cofre (Password Manager) ---"
 read -s -p "Digite a Senha Mestre: " MASTER_PASS
 echo ""
 
