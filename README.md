@@ -89,6 +89,12 @@ gpg --batch --yes --passphrase "minhasenha123" -d segredo.txt.gpg
 # Arquivos compactados (ex: 7z)
 gpg --batch --yes --passphrase "minhasenha123" -c gpg.7z
 gpg --batch --yes --passphrase "minhasenha123" -d gpg.7z.gpg > gpg_2.7z
+
+# arquivo gpg simples
+# criar
+gpg --batch --yes --passphrase "minhasenha123" -c -o backup_senhas.json.gpg arquivo_json_original.json
+# descriptografar
+gpg --batch --passphrase "minhasenha123" --decrypt backup_senhas.json.gpg > meu_backup_legivel.json
 ```
 
 # Urls

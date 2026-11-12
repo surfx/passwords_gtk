@@ -4,10 +4,11 @@ import subprocess
 import glob
 import secrets
 import pickle
+import json
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLineEdit, QPushButton, QPlainTextEdit, QMessageBox, QTabWidget,
-    QInputDialog, QDialog, QLabel
+    QInputDialog, QDialog, QLabel, QFileDialog
 )
 from PyQt6.QtGui import QTextCharFormat, QColor, QTextCursor, QShortcut, QKeySequence, QFont, QIcon
 from PyQt6.QtCore import Qt
@@ -100,16 +101,13 @@ class InitialSetupDialog(QDialog):
 
 class CustomPlainTextEdit(QPlainTextEdit):
     def focusNextPrevChild(self, next):
-        # Impede que o Tab ou Shift+Tab mude o foco para outros botões
         return False
 
     def keyPressEvent(self, event):
-        # No Qt, Shift+Tab muitas vezes é reportado como Key_Backtab
         if event.key() in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
             is_shift = (event.modifiers() & Qt.KeyboardModifier.ShiftModifier) or (event.key() == Qt.Key.Key_Backtab)
             if self.handle_tab(backwards=is_shift):
                 return
-        
         super().keyPressEvent(event)
 
     def handle_tab(self, backwards=False):
@@ -214,7 +212,7 @@ class SearchApp(QMainWindow):
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
 
-        # Top Bar (Search)
+        # Top Bar (Search apenas com Input e botões de navegação ▲ ▼)
         search_layout = QHBoxLayout()
         self.search_input = QLineEdit()
         self.search_input.setFont(self.app_font)
@@ -222,11 +220,11 @@ class SearchApp(QMainWindow):
         self.search_input.textChanged.connect(self.on_search_changed)
         
         self.btn_up = QPushButton("▲")
-        self.btn_up.setFixedWidth(50)
+        self.btn_up.setFixedWidth(40)
         self.btn_up.clicked.connect(self.prev_match)
         
         self.btn_down = QPushButton("▼")
-        self.btn_down.setFixedWidth(50)
+        self.btn_down.setFixedWidth(40)
         self.btn_down.clicked.connect(self.next_match)
         
         search_layout.addWidget(self.search_input)
@@ -234,7 +232,7 @@ class SearchApp(QMainWindow):
         search_layout.addWidget(self.btn_down)
         main_layout.addLayout(search_layout)
 
-        # Tabs Control Bar (+ / - / R)
+        # Barra de Controles e Abas (+ / - / R / Exportar / Importar / Ver Senha Mestra)
         tabs_control_layout = QHBoxLayout()
         self.btn_add_tab = QPushButton("+")
         self.btn_add_tab.setFixedWidth(40)
@@ -248,10 +246,22 @@ class SearchApp(QMainWindow):
         self.btn_rename_tab.setFixedWidth(40)
         self.btn_rename_tab.setToolTip("Renomear Aba Atual")
         self.btn_rename_tab.clicked.connect(self.rename_current_tab)
+
+        self.btn_export = QPushButton("Exportar")
+        self.btn_export.clicked.connect(self.export_vault_data)
+        
+        self.btn_import = QPushButton("Importar")
+        self.btn_import.clicked.connect(self.import_vault_data)
+
+        # self.btn_show_master = QPushButton("Ver Senha Mestra")
+        # self.btn_show_master.clicked.connect(self.show_master_password_dialog)
         
         tabs_control_layout.addWidget(self.btn_add_tab)
         tabs_control_layout.addWidget(self.btn_remove_tab)
         tabs_control_layout.addWidget(self.btn_rename_tab)
+        tabs_control_layout.addWidget(self.btn_export)
+        tabs_control_layout.addWidget(self.btn_import)
+        # tabs_control_layout.addWidget(self.btn_show_master)
         tabs_control_layout.addStretch()
         main_layout.addLayout(tabs_control_layout)
 
@@ -269,6 +279,89 @@ class SearchApp(QMainWindow):
         self.btn_save.setEnabled(False)
         self.btn_save.clicked.connect(self.save_current_tab)
         main_layout.addWidget(self.btn_save)
+
+    # def show_master_password_dialog(self):
+    #     QMessageBox.information(
+    #         self,
+    #         "Senha Mestra",
+    #         f"A sua senha mestre atual é:\n\n{self.master_password}"
+    #     )
+
+    def export_vault_data(self):
+        """Exporta todas as abas para um arquivo estruturado em JSON e criptografado com a senha mestre."""
+        file_path, _ = QFileDialog.getSaveFileName(self, "Exportar Senhas Criptografadas", "backup_senhas.json.gpg", "Arquivos Criptografados (*.gpg *.json)")
+        if not file_path:
+            return
+
+        try:
+            export_data = {}
+            for i in range(self.tab_widget.count()):
+                tab = self.tab_widget.widget(i)
+                export_data[tab.file_name] = tab.text_edit.toPlainText()
+
+            json_str = json.dumps(export_data, ensure_ascii=False, indent=4)
+
+            cmd = ["gpg", "--batch", "--yes", "--passphrase", self.master_password, "-c", "-o", file_path]
+            subprocess.run(cmd, input=json_str, text=True, check=True)
+            QMessageBox.information(self, "Sucesso", f"Dados exportados e criptografados com sucesso em:\n{file_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Erro ao exportar dados: {e}")
+
+    def import_vault_data(self):
+        """Importa dados de um arquivo JSON criptografado, restaurando abas e conteúdos perfeitamente."""
+        file_path, _ = QFileDialog.getOpenFileName(self, "Importar Senhas Criptografadas", "", "Arquivos Criptografados (*.gpg *.json)")
+        if not file_path:
+            return
+
+        try:
+            cmd = ["gpg", "--batch", "--yes", "--passphrase", self.master_password, "-d", file_path]
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            
+            imported_data = json.loads(result.stdout)
+
+            if not isinstance(imported_data, dict):
+                raise ValueError("O formato do arquivo importado é inválido.")
+
+            res = QMessageBox.question(
+                self, "Confirmar Importação",
+                "Isso irá atualizar as abas existentes com o conteúdo do arquivo e sobrescrevê-las se necessário. Deseja continuar?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if res != QMessageBox.StandardButton.Yes:
+                return
+
+            for tab_name, content in imported_data.items():
+                found = False
+                for i in range(self.tab_widget.count()):
+                    tab = self.tab_widget.widget(i)
+                    if tab.file_name == tab_name:
+                        tab.text_edit.setPlainText(content)
+                        self.save_current_tab_explicit(tab)
+                        found = True
+                        break
+                
+                if not found:
+                    self.add_tab(tab_name)
+                    for i in range(self.tab_widget.count()):
+                        tab = self.tab_widget.widget(i)
+                        if tab.file_name == tab_name:
+                            tab.text_edit.setPlainText(content)
+                            self.save_current_tab_explicit(tab)
+                            break
+
+            QMessageBox.information(self, "Sucesso", "Importação concluída com sucesso!")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Erro ao importar cofre (senha incorreta ou arquivo inválido): {e}")
+
+    def save_current_tab_explicit(self, tab):
+        try:
+            content = tab.text_edit.toPlainText()
+            cmd = ["gpg", "--batch", "--yes", "--passphrase", tab.passphrase, "-c", "-o", tab.file_path]
+            subprocess.run(cmd, input=content, text=True, check=True)
+            tab._original_text = content
+            self.update_tab_visuals(tab, False)
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Erro ao salvar aba {tab.file_name}: {e}")
 
     def setup_shortcuts(self):
         self.shortcut_f3 = QShortcut(QKeySequence("F3"), self)
@@ -303,7 +396,6 @@ class SearchApp(QMainWindow):
                 for i in range(self.tab_widget.count()):
                     tab = self.tab_widget.widget(i)
                     if tab.is_modified():
-                        # Seleciona a aba para que o método save_current_tab funcione corretamente ou chamamos uma lógica direta
                         self.tab_widget.setCurrentWidget(tab)
                         self.save_current_tab()
                 event.accept()
@@ -329,23 +421,16 @@ class SearchApp(QMainWindow):
     def scan_and_load_tabs(self):
         os.makedirs(self.data_dir, exist_ok=True)
         gpg_files = glob.glob(os.path.join(self.data_dir, "*.gpg"))
-        
-        # Filtra para ignorar arquivos ocultos como o .vault.gpg
         gpg_files = [f for f in gpg_files if not os.path.basename(f).startswith(".")]
-        
         existing_names = [os.path.splitext(os.path.basename(f))[0] for f in gpg_files]
-        
-        # Ordem salva no cofre
         saved_order = self.vault_data.get("__order__", [])
         
-        # 1. Carrega as abas que estão na ordem salva e ainda existem no disco
         loaded_names = []
         for name in saved_order:
             if name in existing_names:
                 self.add_tab(name)
                 loaded_names.append(name)
         
-        # 2. Carrega qualquer arquivo novo que não estava na ordem salva
         for name in sorted(existing_names):
             if name not in loaded_names:
                 self.add_tab(name)
@@ -354,13 +439,10 @@ class SearchApp(QMainWindow):
             self.add_tab("Principal")
 
     def on_tabs_reordered(self, from_idx, to_idx):
-        # Gera a lista da nova ordem
         new_order = []
         for i in range(self.tab_widget.count()):
             name = self.tab_widget.tabText(i).replace(" *", "")
             new_order.append(name)
-        
-        # Salva no vault
         self.vault_data["__order__"] = new_order
         self.save_vault()
 
@@ -369,10 +451,8 @@ class SearchApp(QMainWindow):
             if self.tab_widget.tabText(i).replace(" *", "") == name:
                 return
         
-        # Busca a senha no cofre ou gera uma nova se não existir
         if name not in self.vault_data:
             self.vault_data[name] = secrets.token_urlsafe(32)
-            # A nova aba será a última, então atualizamos a ordem
             self.update_order_in_vault()
             self.save_vault()
             
@@ -393,7 +473,6 @@ class SearchApp(QMainWindow):
         if ok and name:
             self.add_tab(name)
             self.tab_widget.setCurrentIndex(self.tab_widget.count() - 1)
-            # Garante que a ordem seja salva após adicionar
             self.update_order_in_vault()
             self.save_vault()
 
@@ -407,15 +486,12 @@ class SearchApp(QMainWindow):
         if not ok or not new_name or new_name == old_name:
             return
 
-        # Verifica se já existe outra aba com o novo nome
         for i in range(self.tab_widget.count()):
             if self.tab_widget.tabText(i).replace(" *", "") == new_name:
                 QMessageBox.warning(self, "Aviso", "Já existe uma aba com este nome.")
                 return
 
         new_file_path = os.path.join(self.data_dir, f"{new_name}.gpg")
-        
-        # 1. Renomeia o arquivo no disco se ele existir
         if os.path.exists(tab.file_path):
             try:
                 os.rename(tab.file_path, new_file_path)
@@ -423,21 +499,15 @@ class SearchApp(QMainWindow):
                 QMessageBox.critical(self, "Erro", f"Erro ao renomear arquivo: {e}")
                 return
         
-        # 2. Atualiza o cofre
         if old_name in self.vault_data:
             self.vault_data[new_name] = self.vault_data.pop(old_name)
-            # Atualiza também a lista de ordem
             if "__order__" in self.vault_data:
                 self.vault_data["__order__"] = [new_name if n == old_name else n for n in self.vault_data["__order__"]]
             self.save_vault()
 
-        # 3. Atualiza o objeto TabContent
         tab.file_name = new_name
         tab.file_path = new_file_path
-        
-        # 4. Atualiza a interface (visual da aba)
-        is_modified = tab.is_modified()
-        self.update_tab_visuals(tab, is_modified)
+        self.update_tab_visuals(tab, tab.is_modified())
 
     def remove_current_tab(self):
         idx = self.tab_widget.currentIndex()
@@ -453,13 +523,10 @@ class SearchApp(QMainWindow):
                     QMessageBox.critical(self, "Erro", f"Não foi possível deletar o arquivo: {e}")
                     return
             
-            # Remove do cofre
             if tab.file_name in self.vault_data:
                 del self.vault_data[tab.file_name]
                 
             self.tab_widget.removeTab(idx)
-            
-            # Atualiza a ordem e salva o vault
             self.update_order_in_vault()
             self.save_vault()
             
